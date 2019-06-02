@@ -1,0 +1,12 @@
+*.pyc
+*/__pycache__/
+*.swp
+*.debris
+
+__pycache__
+.debries
+
+# Make sure only the python files in data are commited
+data/*
+!data/*.py
+

@@ -470,7 +470,8 @@ def skip_detrend(lcf, hp_data):
     else:
         kernel = gp_tools.ClassicK2Kernel()
 
-    k2_detrender = gp_tools.K2Detrender(lcf, kernel, ramp=ramp_flag)
+    k2_detrender = gp_tools.K2Detrender(lcf, kernel,
+                                        model='ramp' if ramp_flag else None)
     # k2_detrender.set_hp(np.array(hp.values()), include_frozen=True)
 
     # BUG: this should be temporary because not all are in the same format
