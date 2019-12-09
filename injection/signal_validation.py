@@ -165,6 +165,8 @@ def find_signal(bls_peaks, injection_model):
 def pre_filter_transit(injection_model, t, f, snr_cutoff=1.0):
     """Checks if the expected snr is greater than a cutoff.
 
+    NOTE: currently not used; I do this manually in irm.
+
     Args:
         injection_model (transear.injection.InjectonModel)
         t, f (np.array)

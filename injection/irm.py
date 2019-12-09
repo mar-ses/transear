@@ -36,7 +36,7 @@ from k2gp import k2gp, lcf_tools, gp_tools
 from k2gp_dist.__init__ import HP_LOC
 
 # Global variables
-tf_snr_cutoff = 3.0
+tf_snr_cutoff = 5.0
 
 # Keywords for bls and tf routines
 bls_keys = ('num_searches', 'P_min', 'P_max', 'nf_tol', 'nb_tol',
@@ -44,7 +44,7 @@ bls_keys = ('num_searches', 'P_min', 'P_max', 'nf_tol', 'nb_tol',
 tf_keys  = ('bin_type', 'bin_res', 'subtract_results', 'adjust_res',
             'freeze_a', 'overlap_lim')
 
-bls_defaults = {'num_searches':10, 'P_min':0.5, 'P_max':None,
+bls_defaults = {'num_searches':10, 'P_min':0.5, 'P_max':20,
                 'ignore_invalid':True, 'pr_test':True,
                 'max_runs':20}
 tf_defaults = {'bin_type':'regular', 'bin_res':6, 'subtract_result':False,
@@ -82,7 +82,7 @@ def	full_recover(lcf, injection_model, f_col='f_detrended',
         **kwargs (dict): for both bls fitting and tf fitting
             dt_kwargs: proc_kw, full_final
             tf_kwargs: num_searches, P_min, P_max, nf_tol, nb_tol,
-                qms_tol, ignore_invalid, pr_test, max_runs
+                qms_tol, ignore_invalid, pr_test, max_runs, f_err
             bls_kwargs: bin_type, bin_res, subtract_results,
                 adjust_res, freeze_a, overlap_lim
 
@@ -98,13 +98,37 @@ def	full_recover(lcf, injection_model, f_col='f_detrended',
                         'tf_snr_estimate':np.nan,
                         'tf_snr_fit':np.nan})
 
-    # Pre-filters transit and returns False/np.nan if it doesn't pass
-    if pre_filter and not pre_filter_transit(injection_model,
-                                             lcf.t, lcf.f_detrended,
-                                             snr_cutoff=1.0):
-        # BUG: testing to see if filter rejects everything
-        print("Filter failed.")
+    if 'f_err' in kwargs.keys():
+        f_err = kwargs['f_err'] 
+    else:
+        f_err = util_lib.calc_noise(lcf[f_col])
+
+    # It's better to write an snr_estimate anyway,
+    # so later comparison can be done
+    initial_snr = util_lib.estimate_snr(depth=injection_model['depth'],
+                                        per=injection_model['per'],
+                                        t_base=(max(lcf.t) - min(lcf.t)),
+                                        duration=injection_model['duration'],
+                                        signoise=f_err,
+                                        t_cad=np.nanmedian(np.diff(lcf.t)))
+
+    # TODO: figure this out properly; perhaps I shouldn't do this
+    # Basically, is the estimate returned even when the signal
+    # has an SNR that's too low? If so, don't put the predicted/initial
+    # snr into the estimate
+    result['tf_snr_estimate'] = initial_snr
+    result['tf_snr_predicted'] = initial_snr
+
+    if pre_filter and not (initial_snr > snr_lim-1.0):
         return result
+
+    # Pre-filters transit and returns False/np.nan if it doesn't pass
+    # if pre_filter and not pre_filter_transit(injection_model,
+    #                                          lcf.t, lcf[f_col],
+    #                                          snr_cutoff=snr_lim - 1.0):
+    #     # BUG: testing to see if filter rejects everything
+    #     print("Filter failed.")
+    #     return result
 
     if perform_tf:
         result['tf_flag'], p_fit = stage_tf(lcf,
@@ -188,7 +212,7 @@ def	recover_injection(lcf, P, R_p, R_star, M_star, t0=None, inc=None,
             or 'none' overlap; if inc=None, inc='none' is the default
         **kwargs (dict): passed to full_recover, and not to the
             injection_model.
-            To include: cascade_failure, ... NOT f_col
+            To include: cascade_failure, f_err, ... NOT f_col
 
     Returns:
         tf_flag, bls_flag, dt_flag, tf_snr
@@ -440,8 +464,8 @@ def stage_dt(lcf, injection_model, snr_lim=tf_snr_cutoff, snr_source='snr',
     # -----------------------------
 
     validation_flag, bls_peaks, validated_peak = stage_bls(
-            lcf, injection_model, snr_lim=snr_lim, snr_source=snr_source,
-            f_col='f_detrended', **kwargs)
+        lcf=lcf, injection_model=injection_model, snr_lim=snr_lim,
+        snr_source=snr_source, f_col='f_detrended', **kwargs)
 
     return validation_flag, bls_peaks, validated_peak, lcf
 
@@ -460,28 +484,91 @@ def skip_detrend(lcf, hp_data):
     hp = hp_data.hp
     pv = hp_data.dt_pv
     p_flag = hp_data.dt_kernel in ('qp', 'quasiperiodic')
-    ramp_flag = hp_data.dt_ramp if 'dt_ramp' in hp_data.index else True
 
-    if isinstance(hp, (dict, OrderedDict)):
-        hp = np.array([v for v in hp.values()])
+    if not 'dt_model' in hp_data.index or pd.isnull(hp_data.dt_model):
+        model_kw = 'y_offset'
+    else:
+        model_kw = hp_data.dt_model
+
+    #ramp_flag = hp_data.dt_ramp if 'dt_ramp' in hp_data.index else True
 
     if p_flag:
         kernel = gp_tools.QuasiPeriodicK2Kernel(pv)
     else:
         kernel = gp_tools.ClassicK2Kernel()
 
-    k2_detrender = gp_tools.K2Detrender(lcf, kernel,
-                                        model='ramp' if ramp_flag else None)
+    k2_detrender = gp_tools.K2Detrender(lcf, kernel, model=model_kw)
     # k2_detrender.set_hp(np.array(hp.values()), include_frozen=True)
 
     # BUG: this should be temporary because not all are in the same format
-    if len(hp) == np.sum(k2_detrender.unfrozen_mask):
-        k2_detrender.set_hp(hp, include_frozen=False)
-    else:
-        k2_detrender.set_hp(hp, include_frozen=True)
+    # if isinstance(hp, (dict, OrderedDict)):
+    #     hpa = np.array([v for v in hp.values()])
 
-    lcfb = k2_detrender.select_basis()
-    lcfb = k2_detrender.select_basis()
+    # if len(hpa) == np.sum(k2_detrender.unfrozen_mask):
+    #     try:
+    #         k2_detrender.set_hp(hpa, include_frozen=False)
+    #     except ValueError as e:
+    #         raise ValueError(
+    #             "Setting hp error.\n"
+    #             "hp: {}\n"
+    #             "detrender.hp_dict: {}\n"
+    #             "detrender.unfrozen_mask: {}\n"
+    #             "length: {} vs {}\n"
+    #             "".format(hpa, k2_detrender.get_parameter_dict(),
+    #                       k2_detrender.unfrozen_mask,
+    #                       len(hpa), len(k2_detrender.hp)))
+    # else:
+    #     try:
+    #         k2_detrender.set_hp(hpa, include_frozen=True)
+    #     except ValueError as e:
+    #         raise ValueError(
+    #             "Setting hp error.\n"
+    #             "hp: {}\n"
+    #             "hp_dict: {}\n"
+    #             "detrender.hp_dict: {}\n"
+    #             "detrender.unfrozen_mask: {}\n"
+    #             "length: {} vs {}\n"
+    #             "".format(hpa, hp, k2_detrender.get_parameter_dict(),
+    #                       k2_detrender.unfrozen_mask,
+    #                       len(hpa), np.sum(k2_detrender.unfrozen_mask)))
+
+    # Checking if any parameters are missing.
+    hp_names_given = [key for key in hp.keys()]
+    hp_names_k2d = k2_detrender._pname_to_local(k2_detrender.parameter_names)
+
+    if not np.all(np.isin(hp_names_k2d, hp_names_given)):
+        missing_names = [n for n in hp_names_k2d if not n in hp_names_given]
+        raise ValueError("Not all the detrender parameters were in the "
+                         "hp_table.hp dict. Missing: {}\n"
+                         "hp_names_k2d: {}\n"
+                         "hp_names_given: {}\n"
+                         "".format(missing_names,
+                                   hp_names_k2d,
+                                   hp_names_given))
+
+    # TODO: one issue is still that ramp parameters are given for
+    # non-ramp models
+    if not np.all(np.isin(hp_names_given, hp_names_k2d)):
+        print("skip_detrend: More parameters given than there are in"
+              "the model, the likely cause is that the stored",
+              "parameters in hp_table are including a ramp model,"
+              "isn't properly communicated to the detrender creation",
+              "here.\n",
+              "\nhp_table.hp dict. Missing:", missing_names,
+              "\nhp_names_k2d:", hp_names_k2d,
+              "\nhp_names_given:", hp_names_given)
+
+    # BUG: still not working, wtf is hp
+    try:
+        for hpn, hpv in hp.items():
+            k2_detrender.set_parameter(hpn, hpv)
+    except ValueError:
+        raise ValueError("hp can't be unpacked.\nhp: {}\n"
+                         "type(hp): {}".format(hp, type(hp)))
+
+    # Select basis twice to properly identify outliers
+    k2_detrender.select_basis()
+    k2_detrender.select_basis()
     lcf = k2_detrender.detrend_lightcurve()
 
     return lcf
