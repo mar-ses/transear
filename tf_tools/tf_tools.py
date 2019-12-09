@@ -228,6 +228,7 @@ def sample_transit(t, f, bin_type='regular', bin_res=6,
             M_star, R_star, BLS-PARAMS
             Also contains the mcmc parameters:
             iterations, burn, nwalkers, plot_posterior
+            and finall f_err
 
     Returns:
         result_df, chain_df, snr, mcmc_flag
@@ -243,7 +244,8 @@ def sample_transit(t, f, bin_type='regular', bin_res=6,
     if np.nanmedian(f) < 0.5:
         f = f + 1.0 - np.nanmedian(f)
 
-    f_err = stats.sigmaclip(f)[0].std()
+    if f_err is None:
+        f_err = stats.sigmaclip(f)[0].std()
 
     tfitter = TransitFitter.from_bls(t, f, f_err, **fit_params,
                                      bin_res=bin_res, bin_type=bin_type,
