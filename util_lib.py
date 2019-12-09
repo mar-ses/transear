@@ -227,7 +227,7 @@ def mask_floor(f, sig_factor=6, base_val=0.05):
 	floor_mask = f < (np.nanmedian(f) - base_val)
 	return sig_mask & floor_mask
 
-def calc_noise(ts, n_chunks=10000, chunk_size=50):
+def calc_noise(ts, n_chunks=1000, chunk_size=50):
 	"""Performs local-average calculation of the noise of a curve.
 
 	In this case, intended to be used for the BLS spectrum noise.
@@ -244,7 +244,7 @@ def calc_noise(ts, n_chunks=10000, chunk_size=50):
 	"""
 
 	# This should carry a warning, possibly cause an exception.
-	if chunk_size < len(ts):
+	if chunk_size > len(ts):
 		return stats.sigmaclip(ts)[0].std()
 
 	# Split the data into chunks.
