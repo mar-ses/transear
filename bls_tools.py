@@ -197,6 +197,13 @@ def search_transits(t, f, num_searches=10, R_star=0.1, M_star=0.1,
         bls_peaks.at[i, 'power'] = power
         bls_peaks.at[i, 'noise'] = bls_noise
         bls_peaks.at[i, 'snr'] = blss.loc[blss.period == period, 'snr'].iloc[0]
+
+        # BUG TODO
+        if not np.isfinite(bls_peaks.loc[i, 'snr']):
+            print("Non-finite snr in bls_peaks:", bls_peaks)
+            raise ValueError("bls_peaks snr is nan. i = {}\n"
+                             "bls_peaks = {}".format(i, bls_peaks))
+
         assert np.isfinite(bls_peaks.loc[i, 'snr'])
 
         i += 1
@@ -621,20 +628,27 @@ def get_split_info(P_min, P_max, T, R_star, M_star,
             # the loop and leave si as it is
             #
             # BUG
-            print("Breaking split info, p_min", p_min)
-            si.drop(i, axis='index')
+            print(" f_min inversion.\n", '-'*40)
+            print(" ".join(["Inversion error,",
+                            "P_min = {}, P_max = {},".format(p_min, p_max),
+                            "fmin = {},".format(si.at[i, 'fmin']),
+                            "fmax = {}".format(si.at[i, 'fmax']),
+                            "T = {}".format(T)]))
+
+            si.drop(i, axis='index', inplace=True)
             break
 
-            # BUG: flagging
-            pd.set_option('display.max_columns', 30)
-            pd.set_option('display.max_rows', len(si))
-            err_str = " ".join(["Inversion error,",
-                                "P_min = {}, P_max = {},".format(p_min, p_max),
-                                "fmin = {},".format(si.at[i, 'fmin']),
-                                "fmax = {}".format(si.at[i, 'fmax']),
-                                "T = {}".format(T)])
-            print(err_str)
-            raise InvertedLimitsError(err_str, si)
+            # BUG: flagging (will never get here)
+            # TODO: This part is obsolete.
+            # pd.set_option('display.max_columns', 30)
+            # pd.set_option('display.max_rows', len(si))
+            # err_str = " ".join(["Inversion error,",
+            #                     "P_min = {}, P_max = {},".format(p_min, p_max),
+            #                     "fmin = {},".format(si.at[i, 'fmin']),
+            #                     "fmax = {}".format(si.at[i, 'fmax']),
+            #                     "T = {}".format(T)])
+            # print(err_str)
+            # raise InvertedLimitsError(err_str, si)
 
         si.at[i, 'nf'] = get_nf(P=p_max,
                                 R_star=R_star,

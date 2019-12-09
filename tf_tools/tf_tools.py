@@ -20,7 +20,7 @@ from ..__init__ import HOME_DIR
 # ------------------------
 
 def fit_transits(t, f, bls_peaks, R_star, M_star, bin_type='regular',
-                 bin_res=8, calc_snr=True, subtract_results=False,
+                 bin_res=8, calc_snr=False, subtract_results=False,
                  freeze_a=True, overlap_lim='full', **fit_kwargs):
     """Tries to fit all the peaks in 'bls_peaks' with batman.
 
@@ -42,8 +42,8 @@ def fit_transits(t, f, bls_peaks, R_star, M_star, bin_type='regular',
         subtract_results (bool): if True, subtracts the fitted
             transits before fitting the next
         **fit_kwargs: additional params to `fit_single_transit`,
-            e.g. cut_lightcurve, iterations, burn, nwalkers,
-                 adjust_res
+            e.g. cut_lightcurve, iterations, burn,
+                 nwalkers, adjust_res, f_err
 
     Returns:
         bls_peaks but updated with the fitted parameters, under
@@ -86,9 +86,7 @@ def fit_transits(t, f, bls_peaks, R_star, M_star, bin_type='regular',
         if p_initial.isnull().any():
             raise ValueError('p_initial contained NaN.')
 
-        # BUG
-        try:
-            p_fit, _ = fit_single_transit(t, f, bin_type=bin_type,
+        p_fit, _ = fit_single_transit(t, f, bin_type=bin_type,
                                       bin_res=bin_res,
                                       freeze_a=freeze_a,
                                       overlap_lim=overlap_lim,
@@ -96,11 +94,6 @@ def fit_transits(t, f, bls_peaks, R_star, M_star, bin_type='regular',
                                       M_star=M_star,
                                       **fit_kwargs,
                                       **p_initial)
-        except ValueError as e:
-            print("In fit_transits, prior error calling fit_single_transit")
-            print("**p_initial\n", p_initial)
-            print("**fit_kwargs\n", fit_kwargs)
-            raise e from None
 
         if calc_snr:
             _, _, p_fit['snr_fit'], p_fit['mcmc_flag'] = sample_transit(
@@ -132,7 +125,7 @@ def fit_transits(t, f, bls_peaks, R_star, M_star, bin_type='regular',
     return bls_peaks
 
 def fit_single_transit(t, f, bin_type='regular', bin_res=6,
-                       cut_lightcurve=True,
+                       cut_lightcurve=True, f_err=None,
                        adjust_res=True, freeze_a=True,
                        overlap_lim='full', **fit_params):
     """Fits a single transit from bls parameters.
@@ -161,7 +154,7 @@ def fit_single_transit(t, f, bin_type='regular', bin_res=6,
             M_star, R_star, BLS-PARAMS
 
     Returns:
-        p_fit, result_df, chain_df, params
+        p_fit, batman.params
     """
 
     mcmc_keys = ('iterations', 'burn', 'nwalkers', 'plot_posterior')
@@ -174,7 +167,8 @@ def fit_single_transit(t, f, bin_type='regular', bin_res=6,
     if abs(np.nanmedian(f)) > 0.1:
         f = f + 1.0 - np.nanmedian(f)
 
-    f_err = stats.sigmaclip(f)[0].std()
+    if f_err is None:
+        f_err = stats.sigmaclip(f)[0].std()
 
     # BUG
     try:

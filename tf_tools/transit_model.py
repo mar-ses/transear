@@ -626,7 +626,7 @@ class TransitModel(object):
 	def calc_a(self, R_star, M_star, per=None, set_value=False):
 		per = self['per'] if per is None else per
 	
-		M_fac = (0.5*per*units.day/np.pi)**(2/3) * (0.5*const.G)**(1/3)
+		M_fac = (0.5*per*units.day/np.pi)**(2/3) * const.G**(1/3)
 		a = (M_fac*(M_star*const.M_sun)**(1/3) / (R_star*const.R_sun)).to('').value
 
 		if set_value:

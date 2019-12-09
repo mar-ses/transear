@@ -342,8 +342,7 @@ class TransitFitter(TransitModel):
 
         return model_lnlikelihood - null_lnlikelihood
 
-    def estimate_snr(self, count_points=True, duration_window=0.9,
-                     params=None, subtract_transit=True):
+    def estimate_snr(self, count_points=True,  subtract_transit=True):
         """Estimate the SNR for a basic gaussian assumption.
 
         Args:
@@ -370,11 +369,14 @@ class TransitFitter(TransitModel):
             return 0.0
 
         if subtract_transit:
-            f_lcf = self.f_data - self.evaluate_model()
+            f_lcf = self.f_data - self.evaluate_model() + f0
         else:
             f_lcf = self.f_data.copy()
 
-        signoise = np.nanstd(f_lcf)
+        # NOTE: cannot calculate noise directly; megaflares, such as
+        # those in trappist-1, completely mess this up. Instead, need
+        # to use the GP noise, or sigma-clip the noise out.
+        #signoise = np.nanstd(f_lcf)
 
         if count_points:
             npoints = np.sum(t_mask)
@@ -383,7 +385,7 @@ class TransitFitter(TransitModel):
             t_base = np.nanmax(self.t_data) - np.nanmin(self.t_data)
             npoints = t_base * adj_dur / (self['per'] * t_cad)
 
-        return depth * np.sqrt(npoints) / signoise
+        return depth * np.sqrt(npoints) / self.f_err
 
     # Optimization and process methods
     # --------------------------------
@@ -484,9 +486,15 @@ class TransitFitter(TransitModel):
         p0 = p_0 + 1e-6*np.random.randn(nwalkers, ndim)
 
         # Sampling procedure
-        sampler = emcee.EnsembleSampler(nwalkers, ndim, self.lnposterior)
-        sampler.run_mcmc(p0, iterations + burn)
-        chain = sampler.flatchain[burn:]
+        sampler = emcee.EnsembleSampler(nwalkers=nwalkers,
+                                        dim=ndim,
+                                        lnpostfn=self.lnposterior)
+
+        pos, _, _ = sampler.run_mcmc(p0, burn)
+        sampler.reset()
+        sampler.run_mcmc(pos, iterations)
+
+        chain = sampler.flatchain
 
         # NOTE: SNR currently doesn't tell us if the radius converged
         # to the right value or at all (it could converge to 0 and
