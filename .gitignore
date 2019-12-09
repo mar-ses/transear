@@ -5,6 +5,7 @@
 
 __pycache__
 .debries
+archive/*
 
 # Make sure only the python files in data are commited
 data/*
