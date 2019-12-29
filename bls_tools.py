@@ -108,6 +108,12 @@ def search_transits(t, f, num_searches=10, R_star=0.1, M_star=0.1,
                                 nb_tol=nb_tol,
                                 qms_tol=qms_tol)
 
+    # BUG
+    if pd.isnull(R_star) or pd.isnull(M_star):
+        print("R_star or M_star are null in bls_tools.search_transits.")
+        raise ValueError("R_star or M_star cannot be null in new-style "
+                         "bls_tools.search_transits.")
+
     # i indexes through bls_peaks; starts at 0
     i = 0
     # ti only counts the number of runs, starts at 1
@@ -718,8 +724,7 @@ def validate_peaks(bls_peaks, lcf=None, bls_results=None):
     pass
 
 def point_removal_test(t, f, period, t0, duration, depth,
-                       num_points=2, change_fraction=0.5,
-                       fcol='f_detrended'):
+                       num_points=2, change_fraction=0.5):
     """Checks if removing the lowest point(s) changes the depth.
 
     Args:
