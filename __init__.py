@@ -21,6 +21,7 @@ import socket
 
 # K2GP FILE STRUCTURE
 HOME_DIR = os.environ['HOME']
+PACKAGES_DIR = HOME_DIR  # TODO: update when this changes
 K2GP_DIR = '%s/k2gp'%HOME_DIR
 K2GP_DATA = '%s/data'%K2GP_DIR
 TRANSEAR_DIR = "{}/transear".format(HOME_DIR)
