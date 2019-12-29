@@ -132,7 +132,9 @@ def highlight_bls_peaks(lcf, bls_results, bls_peaks, title=None, show=True,
         f_raw = lcf.f
     ax_lcf.plot(lcf.t, f_raw, color='0.7', alpha=0.4, zorder=-100, linestyle='none', marker='.')
     # Temporal
-    ax_lcf.plot(lcf.t, lcf.f_temporal + lcf.f_detrended, color='0.3', alpha=0.7, zorder=-1, linestyle='none', marker='.')
+    ax_lcf.plot(lcf.t, lcf.f_temporal + lcf.f_detrended \
+                - np.nanmedian(lcf.f_detrended), color='0.3',
+                alpha=0.7, zorder=-1, linestyle='none', marker='.')
     # Detrended
     ax_lcf.plot(lcf.t, lcf.f_detrended, color='b', alpha=0.7, zorder=1, linestyle='none', marker='.')
 
