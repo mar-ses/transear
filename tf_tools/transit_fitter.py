@@ -342,26 +342,60 @@ class TransitFitter(TransitModel):
 
         return model_lnlikelihood - null_lnlikelihood
 
-    def estimate_snr(self, count_points=True,  subtract_transit=True):
+    def estimate_snr(self, count_points=True,  subtract_transit=True,
+                     nearby_baseline=True):
         """Estimate the SNR for a basic gaussian assumption.
 
         Args:
             count_points (bool): if True, counts the point in-transit
                 otherwise, estimates points in-transit (more stable)
-            duration_window (float < 1.0): what fraction of the
-                transit duration to count as 'in-transit'
-                TODO: estimate this based on ingress/egress length;
-                i.e based on the orbital parameters, it would be
-                1.0 - rr
+            subtract_transit (bool=True): currently unused (transit
+                is subtracted anyway for the depth)
+            nearby_baseline (bool=True): if False, for the depth
+                references uses the lightcurve median, otherwise, uses
+                the median from the nearby points out-of-transit.
+                Attempts to select the nearest 50 points.
             params (batman.TransitParams)
         """
 
-        f0 = np.nanmedian(self.f_data)
+        # Needed for a few things, the cadence time and total time
+        t_cad = np.nanmedian(np.diff(self.t_data))
+        t_base = np.nanmax(self.t_data) - np.nanmin(self.t_data)
 
         # adjust for ingress/egress
         adj_dur = self['duration'] * (1.0 - self['rp'])
         t_mask = mask_transits(self.t_data, self['t0'], self['per'],
                                duration=adj_dur)
+
+        if nearby_baseline:
+            # Number of points to aim for in the baseline measurement
+            num_points_baseline = 45
+            min_points_baseline = 20
+
+            # The time needed to achieve the above points
+            baseline_window = t_cad*num_points_baseline*self['per']/t_base
+
+            baseline_mask = mask_transits(
+                self.t_data, self['t0'], self['per'],
+                duration=self['duration'] + baseline_window + t_cad)
+            transit_mask = mask_transits(self.t_data, self['t0'], self['per'],
+                                         duration=self['duration'] + t_cad)
+            # Remove the actual transit
+            baseline_mask = baseline_mask & ~transit_mask
+
+            if baseline_mask.sum() > min_points_baseline:
+                # TODO:
+                print("Number of baseline points:", baseline_mask.sum())
+                f0 = np.nanmedian(self.f_data[baseline_mask])
+            else:
+                # TODO:
+                print("Not enough baseline points:", baseline_mask.sum())
+                f0 = np.nanmedian(self.f_data)
+        else:
+            # Otherwise, or if there weren't enough points to set the
+            # baseline
+            f0 = np.nanmedian(self.f_data)
+        
         depth = f0 - np.nanmean(self.f_data[t_mask])
 
         # If there is no points in-transit, the snr doesn't exist
@@ -381,8 +415,6 @@ class TransitFitter(TransitModel):
         if count_points:
             npoints = np.sum(t_mask)
         else:
-            t_cad = np.nanmedian(np.diff(self.t_data))
-            t_base = np.nanmax(self.t_data) - np.nanmin(self.t_data)
             npoints = t_base * adj_dur / (self['per'] * t_cad)
 
         return depth * np.sqrt(npoints) / self.f_err

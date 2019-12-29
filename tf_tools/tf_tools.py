@@ -203,7 +203,7 @@ def fit_single_transit(t, f, bin_type='regular', bin_res=6,
 def sample_transit(t, f, bin_type='regular', bin_res=6,
                    cut_lightcurve=True, adjust_res=True,
                    freeze_a=True, overlap_lim='full',
-                   **fit_params):
+                   f_err=None, **fit_params):
     """Samples physical parameters for a BLS transit signal.
 
     Does NOT clean the lightcurve. Remove flares and heavy outliers
