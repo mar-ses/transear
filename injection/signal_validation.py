@@ -14,6 +14,8 @@ def check_parameter_match(p_fit, injection_model, aliases=True):
     the injected signal, and not waste SNR calculations on signals
     that weren't injected.
 
+    NOTE: This is also known as transit validation.
+
     Args:
         p_fit (pd.Series or dict): the p_fit object returns by tf_tools;
         injection_model (InjectionModel): the injection_model to compare to
@@ -101,20 +103,24 @@ def validate_signal(p_fit, injection_model, snr_lim, snr_source='snr'):
         snr_source (str): key in p_fit to use as the snr
 
     Return:
-        bool: True if signal is properly validated (found)
+        found, matched (bools)
+        found: True if signal is properly validated; i.e matching
+            parameters and SNR over threshold
+        matched: True if parameters are matched, but if SNR is not
+            over the threshold
     """
 
     # All parameter matching is contained in check_parameter_match
     match = check_parameter_match(p_fit, injection_model)
     if not match:
-        return False
-
-    # From here, check other attributes (snr, ch_flag, etc...)
-
-    if p_fit[snr_source] > snr_lim:
-        return True
+        return False, match
+    elif p_fit[snr_source] > snr_lim:
+        # Signal is matched and has SNR over the limit
+        # From here, can check other attributes (snr, ch_flag, etc...)
+        return True, match
     else:
-        return False
+        # Signal matches the transit but the SNR is below the limit
+        return False, match
 
 def find_signal(bls_peaks, injection_model):
     """Finds the injected signal in the bls_peaks.

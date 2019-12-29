@@ -27,38 +27,42 @@ from .signal_validation import (check_parameter_match, validate_signal,
                                 find_signal, pre_filter_transit)
 from .signal_validation import p_fit_NullError
 
-from ..__init__ import HOME_DIR
+from ..__init__ import HOME_DIR, PACKAGES_DIR
 from .. import tf_tools, bls_tools, util_lib
 from ..bls_tools import IntentValueError, InvertedLimitsError
 
-sys.path.append(HOME_DIR)
+sys.path.append(PACKAGES_DIR)
+# sys.path.append("{}/k2gp_dist/slurm_scripts".format(PACKAGES_DIR))
+
 from k2gp import k2gp, lcf_tools, gp_tools
 from k2gp_dist.__init__ import HP_LOC
+from k2gp_dist.script_defaults import bls_defaults, tf_defaults
 
-# Global variables
-tf_snr_cutoff = 5.0
+# Global variables and defaults
+default_snr_cut = 5.0
 
+# Using the same defaults as the tr, but some need to be modified
+bls_defaults['P_max'] = 20.0
+bls_defaults['P_min'] = 0.5
+
+tf_defaults['bin_res'] = 6
+#tf_defaults['bin_type'] = 'none'
+
+# Parameters that we want to pass in manually
+tf_defaults.pop('calc_snr')
+
+# TODO: delete all this (check the keys already)
 # Keywords for bls and tf routines
-bls_keys = ('num_searches', 'P_min', 'P_max', 'nf_tol', 'nb_tol',
-            'qms_tol', 'ignore_invalid', 'pr_test', 'max_runs')
-tf_keys  = ('bin_type', 'bin_res', 'subtract_results', 'adjust_res',
-            'freeze_a', 'overlap_lim')
+# bls_keys = ('num_searches', 'P_min', 'P_max', 'nf_tol', 'nb_tol',
+#             'qms_tol', 'ignore_invalid', 'pr_test', 'max_runs')
+# tf_keys  = ('bin_type', 'bin_res', 'subtract_results', 'adjust_res',
+#             'freeze_a', 'overlap_lim')
 
-bls_defaults = {'num_searches':10, 'P_min':0.5, 'P_max':20,
-                'ignore_invalid':True, 'pr_test':True,
-                'max_runs':20}
-tf_defaults = {'bin_type':'regular', 'bin_res':6, 'subtract_result':False,
-               'adjust_res':True, 'freeze_a':True, 'overlap_lim':'full'}
-
-# TODO NOTE NOTE NOTE NOTE NOTE NOTE NOTE:
-# Super important: A is not a valid parameter to inject transit with;
-# rather derive it from the period and M_star (also eccentricity).
-
-# TODO
-# Also take care of what happens when t0 is more than 1 period from
-# start of lcf when injecting a signal
-
-
+# bls_defaults = {'num_searches':10, 'P_min':0.5, 'P_max':20,
+#                 'ignore_invalid':True, 'pr_test':True,
+#                 'max_runs':20}
+# tf_defaults = {'bin_type':'regular', 'bin_res':6, 'subtract_result':False,
+#                'adjust_res':True, 'freeze_a':True, 'overlap_lim':'full'}
 
 # Bulk injection/recovery routines
 # --------------------------------
@@ -66,7 +70,7 @@ tf_defaults = {'bin_type':'regular', 'bin_res':6, 'subtract_result':False,
 def	full_recover(lcf, injection_model, f_col='f_detrended',
                  cascade_failure=True, perform_tf=False,
                  perform_bls=False, perform_dt=True,
-                 snr_source='snr_estimate', snr_lim=tf_snr_cutoff,
+                 snr_source='snr_estimate', snr_lim=default_snr_cut,
                  pre_filter=False, **kwargs):
     """Performs all 3 stages of recovery.
 
@@ -95,31 +99,37 @@ def	full_recover(lcf, injection_model, f_col='f_detrended',
 
     result = pd.Series({'tf_flag':False, 'bls_flag':False,
                         'dt_flag':False, 'tf_snr':np.nan,
-                        'tf_snr_estimate':np.nan,
-                        'tf_snr_fit':np.nan})
+                        'dt_snr':np.nan,
+                        # 'tf_snr_fit':np.nan,
+                        # 'tf_snr_estimate':np.nan,
+                        'snr_predicted':np.nan})
+
+    # TODO: removing all idea or knowledge of tf_snr_fit and
+    # tf_snr_estimate; it is obsolete
 
     if 'f_err' in kwargs.keys():
         f_err = kwargs['f_err'] 
     else:
         f_err = util_lib.calc_noise(lcf[f_col])
 
-    # It's better to write an snr_estimate anyway,
-    # so later comparison can be done
-    initial_snr = util_lib.estimate_snr(depth=injection_model['depth'],
-                                        per=injection_model['per'],
-                                        t_base=(max(lcf.t) - min(lcf.t)),
-                                        duration=injection_model['duration'],
-                                        signoise=f_err,
-                                        t_cad=np.nanmedian(np.diff(lcf.t)))
+    # First we calculate the predicted snr
+    # It is no longer touched
+    # TODO: could InjectionModel calculate this itself; given
+    # an f_err, or calculating its own?
+    result['snr_predicted'] = util_lib.estimate_snr(
+        depth=injection_model['depth'], per=injection_model['per'],
+        t_base=(max(lcf.t) - min(lcf.t)), duration=injection_model['duration'],
+        signoise=f_err, t_cad=np.nanmedian(np.diff(lcf.t)))
 
     # TODO: figure this out properly; perhaps I shouldn't do this
     # Basically, is the estimate returned even when the signal
     # has an SNR that's too low? If so, don't put the predicted/initial
     # snr into the estimate
-    result['tf_snr_estimate'] = initial_snr
-    result['tf_snr_predicted'] = initial_snr
+    # result['tf_snr_estimate'] = initial_snr
+    # result['tf_snr_predicted'] = initial_snr
 
-    if pre_filter and not (initial_snr > snr_lim-1.0):
+    # TODO: refine this; what differences can be expected
+    if pre_filter and not result['snr_predicted'] > (snr_lim - 2.0):
         return result
 
     # Pre-filters transit and returns False/np.nan if it doesn't pass
@@ -131,72 +141,67 @@ def	full_recover(lcf, injection_model, f_col='f_detrended',
     #     return result
 
     if perform_tf:
-        result['tf_flag'], p_fit = stage_tf(lcf,
-                                            injection_model,
-                                            snr_lim=snr_lim,
-                                            snr_source=snr_source,
-                                            randomise=True,
-                                            f_col=f_col,
-                                            **(kwargs.copy()))
+        result['tf_flag'], tf_match, p_fit = stage_tf(lcf, injection_model,
+                                                      snr_lim=snr_lim,
+                                                      snr_source=snr_source,
+                                                      randomise=True,
+                                                      f_col=f_col,
+                                                      **(kwargs.copy()))
 
-        if result['tf_flag'] or p_fit is not None:
+        if result['tf_flag'] or tf_match:
             # Write the snr even if it's not "found", i.e above the threshold,
             # if the tf routine was actually fitting the correct signal
             result['tf_snr'] = p_fit[snr_source]
-            result['tf_snr_estimate'] = p_fit['tf_snr_estimate']
-            result['tf_snr_fit'] = p_fit['tf_snr_fit'] \
-                                   if 'tf_snr_fit' in p_fit.index \
-                                   else np.nan
+            # result['tf_snr_estimate'] = p_fit['tf_snr_estimate']
+            # result['tf_snr_fit'] = p_fit['tf_snr_fit'] \
+            #                        if 'tf_snr_fit' in p_fit.index \
+            #                        else np.nan
     else:
         result['tf_flag'] = True
 
     if perform_bls and (result['tf_flag'] or not cascade_failure):
-        result['bls_flag'], _, p_fit = stage_bls(lcf,
-                                                injection_model,
-                                                snr_lim=snr_lim,
-                                                snr_source=snr_source,
-                                                f_col=f_col,
-                                                **(kwargs.copy()))
+        result['bls_flag'], bls_match, _, p_fit = stage_bls(
+            lcf, injection_model, **(kwargs.copy()),
+            snr_lim=snr_lim, snr_source=snr_source, f_col=f_col)
 
-        if result['bls_flag'] or p_fit is not None:
-            # Write the snr even if it's not "found", i.e above the threshold,
-            # if the tf routine was actually fitting the correct signal
+        if result['bls_flag'] or bls_match:
+            # This will replace the tf_snr
+            # There shouldn't be any difference anyway
             result['tf_snr'] = p_fit[snr_source]
-            result['tf_snr_estimate'] = p_fit['snr_estimate']
-            result['tf_snr_fit'] = p_fit['snr_fit'] \
-                                   if 'snr_fit' in p_fit.index \
-                                   else np.nan
+            # result['tf_snr_estimate'] = p_fit['snr_estimate']
+            # result['tf_snr_fit'] = p_fit['snr_fit'] \
+            #                        if 'snr_fit' in p_fit.index \
+            #                        else np.nan
     elif not perform_bls:
         result['bls_flag'] = result['tf_flag']
 
     if perform_dt and (result['bls_flag'] or not cascade_failure):
-        result['dt_flag'], _, p_fit, _ = stage_dt(lcf,
-                                                  injection_model,
-                                                  snr_lim=snr_lim,
-                                                  snr_source=snr_source,
-                                                  **(kwargs.copy()))
+        result['dt_flag'], dt_match, _, p_fit, _ = stage_dt(
+            lcf, injection_model, **(kwargs.copy()),
+            snr_lim=snr_lim, snr_source=snr_source)
 
-        if result['dt_flag'] or p_fit is not None:
+        if result['dt_flag'] or dt_match:
             # Write the snr even if it's not "found", i.e above the threshold,
             # if the tf routine was actually fitting the correct signal
-            result['tf_snr'] = p_fit[snr_source]
-            result['tf_snr_estimate'] = p_fit['snr_estimate']
-            result['tf_snr_fit'] = p_fit['snr_fit'] \
-                                   if 'snr_fit' in p_fit.index \
-                                   else np.nan
+            result['dt_snr'] = p_fit[snr_source]
+            # result['tf_snr_estimate'] = p_fit['snr_estimate']
+            # result['tf_snr_fit'] = p_fit['snr_fit'] \
+            #                        if 'snr_fit' in p_fit.index \
+            #                        else np.nan
     else:
-        result['dt_flag'] = np.nan
+        result['dt_flag'] = False
 
     # If the stage is not performed, it's given a fake True value during
     # the recovery to allow the next stage to run. However in the return
     # value; this must be corrected to np.nan in such cases.
-    result['tf_flag'] = np.nan if not perform_tf else result['tf_flag']
-    result['bls_flag'] = np.nan if not perform_bls else result['bls_flag']
+    result['tf_flag'] = False if not perform_tf else result['tf_flag']
+    result['bls_flag'] = False if not perform_bls else result['bls_flag']
+    result['snr'] = result['dt_snr'] if perform_dt else result['tf_snr']
 
     return result
 
 def	recover_injection(lcf, P, R_p, R_star, M_star, t0=None, inc=None,
-                      snr_lim=tf_snr_cutoff, snr_source='snr_estimate',
+                      snr_lim=default_snr_cut, snr_source='snr_estimate',
                       pre_filter=False, **kwargs):
     """Injects a signal and performs all 3 stages of recovery.
 
@@ -222,10 +227,10 @@ def	recover_injection(lcf, P, R_p, R_star, M_star, t0=None, inc=None,
         t0 = np.random.rand()*P + min(lcf.t)
 
     # Substitute in the default if they aren't in already.
-    for key in tf_defaults.keys():
+    for key in tf_defaults:
         if key not in kwargs:
             kwargs[key] = tf_defaults[key]
-    for key in bls_defaults.keys():
+    for key in bls_defaults:
         if key not in kwargs:
             kwargs[key] = bls_defaults[key]
 
@@ -258,10 +263,10 @@ def	recover_injection(lcf, P, R_p, R_star, M_star, t0=None, inc=None,
 # ----------------
 
 def stage_tf(lcf, injection_model, f_col='f_detrended', randomise=True,
-             snr_source='snr', snr_lim=tf_snr_cutoff, **tf_kwargs):
+             snr_source='snr_estimate', snr_lim=default_snr_cut, **tf_kwargs):
     """Fits the transit to check if the SNR is high enough.
 
-    TODO: choose bin-type and maybe resolution from the 
+    TODO: choose bin-type and maybe resolution from the
     contents of injection_model. IMPORTANT.
 
     Args:
@@ -275,7 +280,7 @@ def stage_tf(lcf, injection_model, f_col='f_detrended', randomise=True,
             bin_type out of: ('none', 'regular', 'nearby', ...)
 
     Returns:
-        validation_flag, p_fit
+        found_flag, match_flag, p_fit
     """
 
     lcf = lcf.copy()
@@ -284,39 +289,40 @@ def stage_tf(lcf, injection_model, f_col='f_detrended', randomise=True,
     f = lcf[f_col].values
     t = lcf['t'].values
 
-    # Default is no-binning at the moment
-    if 'bin_type' not in tf_kwargs:
-        tf_kwargs['bin_type'] = 'none'
+    # Default is no-binning at the moment (Modified: not anymore)
+    # if 'bin_type' not in tf_kwargs:
+    #     tf_kwargs['bin_type'] = 'none'
 
-    tf_keys = tf_kwargs.keys()
-    tf_kwargs = {key:tf_kwargs[key] for key in tf_keys if key in tf_kwargs}
+    # Extract and separate keyword arguments
+    for key in tf_defaults:
+        tf_kwargs[key] = tf_kwargs[key] if key in tf_kwargs else tf_defaults[key]
+
+    #tf_kwargs = {key:tf_kwargs[key] for key in tf_kwargs if key in tf_kwargs}
 
     if randomise:
         bls_params = injection_model.jiggle_params(return_in='bls')
 
-    p_fit, _, _, _ = tf_tools.fit_single_transit(
-                                        t, f,
-                                        R_star=injection_model['R_star'],
-                                        M_star=injection_model['M_star'],
-                                        **tf_kwargs, **bls_params)
+    p_fit, _, = tf_tools.fit_single_transit(t, f, **tf_kwargs, **bls_params,
+                                            R_star=injection_model['R_star'],
+                                            M_star=injection_model['M_star'])
 
-    if snr_source=='snr':
-        (_, _, p_fit['snr'],
-        p_fit['mcmc_flag']) = tf_tools.sample_transit(
-                                        t, f,
-                                        R_star=injection_model['R_star'],
-                                        M_star=injection_model['M_star'],
-                                        **tf_kwargs,
-                                        **bls_params)
+    if snr_source == 'snr_fit':
+        # This specifies that only in cases where we want to fit the
+        # snr with a full MCMC procedure, should we sample the transit
+        (_, _, p_fit['snr_fit'], p_fit['mcmc_flag']) = tf_tools.sample_transit(
+            t, f, **tf_kwargs, **bls_params,
+            R_star=injection_model['R_star'],
+            M_star=injection_model['M_star'])
 
-    validation_flag = validate_signal(p_fit, injection_model,
-                                      snr_source=snr_source,
-                                      snr_lim=snr_lim)
+    found_flag, match_flag = validate_signal(p_fit, injection_model,
+                                             snr_source=snr_source,
+                                             snr_lim=snr_lim)
 
-    return validation_flag, p_fit
+    return found_flag, match_flag, p_fit
 
-def stage_bls(lcf, injection_model, snr_lim=tf_snr_cutoff,
-              snr_source='snr', f_col='f_detrended', **kwargs):
+def stage_bls(lcf, injection_model, snr_lim=default_snr_cut,
+              snr_source='snr_estimate', f_col='f_detrended',
+              **kwargs):
     """Fits the transit to check if the SNR is high enough.
 
     TODO: choose bin-type and maybe resolution from the 
@@ -332,7 +338,7 @@ def stage_bls(lcf, injection_model, snr_lim=tf_snr_cutoff,
             bls_kwargs: num_searches, nf, nb, qmi, qma, fmin, fmax
 
     Returns:
-        validation_flag, bls_peaks, validated_peak (p_fit-like)
+        found_flag, match_flag, bls_peaks, validated_peak (p_fit-like)
     """
 
     lcf = lcf.copy()
@@ -342,24 +348,23 @@ def stage_bls(lcf, injection_model, snr_lim=tf_snr_cutoff,
     t = lcf['t'].values
 
     # Extract and separate keyword arguments
-    bls_keys = bls_defaults.keys()
-    bls_kwargs = {key:kwargs[key] for key in bls_keys if key in kwargs}
+    bls_kwargs, tf_kwargs = dict(), dict()
 
-    tf_keys = tf_defaults.keys()
-    tf_kwargs = {key:kwargs[key] for key in tf_keys if key in kwargs}
+    for key in bls_defaults:
+        bls_kwargs[key] = kwargs[key] if key in kwargs else bls_defaults[key]
+
+    for key in tf_defaults:
+        tf_kwargs[key] = kwargs[key] if key in kwargs else tf_defaults[key]
+
+    # bls_kwargs = {key:kwargs[key] for key in bls_defaults if key in kwargs}
+    # tf_kwargs = {key:kwargs[key] for key in tf_defaults if key in kwargs}
 
     bls_peaks, _ = bls_tools.search_transits(t, f - 1.0, **bls_kwargs)
-
     bls_peaks = bls_peaks[bls_peaks.valid_flag]
-
-    # BUG TODO
-    try:
-        bls_peaks = tf_tools.fit_transits(t, f, bls_peaks, calc_snr=False,
-                                          R_star=injection_model['R_star'],
-                                          M_star=injection_model['M_star'],
-                                          **tf_kwargs)
-    except TypeError:
-        import pdb; pdb.set_trace()
+    bls_peaks = tf_tools.fit_transits(t, f, bls_peaks, calc_snr=False,
+                                      R_star=injection_model['R_star'],
+                                      M_star=injection_model['M_star'],
+                                      **tf_kwargs)
 
     # Now validate the correct peak in bls_peaks
     dflag, _, idx = find_signal(bls_peaks, injection_model)
@@ -369,30 +374,30 @@ def stage_bls(lcf, injection_model, snr_lim=tf_snr_cutoff,
         p_initial = bls_peaks.loc[idx, ['period', 't0',
                                         'depth', 'duration']]
         p_fit, _, = tf_tools.fit_single_transit(
-                                        t, f,
-                                        R_star=injection_model['R_star'],
-                                        M_star=injection_model['M_star'],
-                                        **tf_kwargs,
-                                        **p_initial)
+            t, f, **tf_kwargs, **p_initial,
+            R_star=injection_model['R_star'],
+            M_star=injection_model['M_star'])
 
-        if snr_source=='snr':
-            (_, _, p_fit['snr'], \
-                p_fit['mcmc_flag']) = tf_tools.sample_transit(
-                                        t, f,
-                                        R_star=injection_model['R_star'],
-                                        M_star=injection_model['M_star'],
-                                        **tf_kwargs,
-                                        **p_initial)       
-     
-        flag = validate_signal(p_fit, injection_model, snr_lim=snr_lim,
-                               snr_source=snr_source)
+        if snr_source == 'snr_fit':
+            # This specifies that only in cases where we want to fit the
+            # snr with a full MCMC procedure, should we sample the transit
+            (_, _, p_fit['snr_fit'],
+             p_fit['mcmc_flag']) = tf_tools.sample_transit(
+                t, f, **tf_kwargs, **p_initial,
+                R_star=injection_model['R_star'],
+                M_star=injection_model['M_star'])     
 
-        return flag, bls_peaks, p_fit
+        found_flag, match_flag = validate_signal(p_fit, injection_model,
+                                                 snr_lim=snr_lim,
+                                                 snr_source=snr_source)
+
+        return found_flag, match_flag, bls_peaks, p_fit
     else:
-        return False, bls_peaks, None
+        return False, False, bls_peaks, None
 
-def stage_dt(lcf, injection_model, snr_lim=tf_snr_cutoff, snr_source='snr',
-             force_classic=False, skip_optimisation=False, **kwargs):
+def stage_dt(lcf, injection_model, snr_lim=default_snr_cut,
+             snr_source='snr_estimate', force_classic=False,
+             skip_optimisation=False, **kwargs):
     """Detrend lightcurve and perform transit_search.
 
     The target_list entry should be emptied into **kwargs,
@@ -419,7 +424,7 @@ def stage_dt(lcf, injection_model, snr_lim=tf_snr_cutoff, snr_source='snr',
             bls_kwargs: num_searches, nf, nb, qmi, qma, fmin, fmax
 
     Returns:
-        validation_flag, bls_peaks, validated_peak, lcf
+        found_flag, match_flag, bls_peaks, validated_peak, lcf
     """
 
     lcf = lcf.copy()
@@ -429,6 +434,7 @@ def stage_dt(lcf, injection_model, snr_lim=tf_snr_cutoff, snr_source='snr',
         if key.startswith('dt_'):
             kwargs[key[3:]] = kwargs.pop(key)
 
+    # We are still using the defaults this way, leave it for now
     dt_keys = ('proc_kw', 'full_final', 'ramp')
     dt_kwargs = {key:kwargs[key] for key in dt_keys if key in kwargs}
 
@@ -436,6 +442,7 @@ def stage_dt(lcf, injection_model, snr_lim=tf_snr_cutoff, snr_source='snr',
     # ----------------------
     skip_optimisation = False if 'epic' not in kwargs else skip_optimisation
 
+    # Try to extract the transit with Exception handling
     if skip_optimisation:
         try:
             epic = kwargs.pop('epic')
@@ -455,6 +462,7 @@ def stage_dt(lcf, injection_model, snr_lim=tf_snr_cutoff, snr_source='snr',
         elif force_classic  and hpd['dt_kernel'] == 'qp':
             skip_optimisation = False
 
+    # Perform the detrending
     if skip_optimisation:
         lcf = skip_detrend(lcf, hp_data=hpd)
     else:
@@ -463,11 +471,11 @@ def stage_dt(lcf, injection_model, snr_lim=tf_snr_cutoff, snr_source='snr',
     # Find and validate the transit
     # -----------------------------
 
-    validation_flag, bls_peaks, validated_peak = stage_bls(
+    found_flag, match_flag, bls_peaks, validated_peak = stage_bls(
         lcf=lcf, injection_model=injection_model, snr_lim=snr_lim,
         snr_source=snr_source, f_col='f_detrended', **kwargs)
 
-    return validation_flag, bls_peaks, validated_peak, lcf
+    return found_flag, match_flag, bls_peaks, validated_peak, lcf
 
 
 # Detrending work functions
@@ -493,7 +501,9 @@ def skip_detrend(lcf, hp_data):
     #ramp_flag = hp_data.dt_ramp if 'dt_ramp' in hp_data.index else True
 
     if p_flag:
-        kernel = gp_tools.QuasiPeriodicK2Kernel(pv)
+        # Set widest hyperparameter bounds; depends only on the actual
+        # optimised values. Shouldn't constrain it here.
+        kernel = gp_tools.QuasiPeriodicK2Kernel(pv, keyword='hf')
     else:
         kernel = gp_tools.ClassicK2Kernel()
 
