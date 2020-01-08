@@ -384,18 +384,17 @@ class TransitFitter(TransitModel):
             baseline_mask = baseline_mask & ~transit_mask
 
             if baseline_mask.sum() > min_points_baseline:
-                # TODO:
-                print("Number of baseline points:", baseline_mask.sum())
-                f0 = np.nanmedian(self.f_data[baseline_mask])
+                # We are only interested in removing signals that ramp
+                # into a dip
+                f0 = min(np.nanmedian(self.f_data[baseline_mask]),
+                         np.nanmedian(self.f_data))
             else:
-                # TODO:
-                print("Not enough baseline points:", baseline_mask.sum())
                 f0 = np.nanmedian(self.f_data)
         else:
             # Otherwise, or if there weren't enough points to set the
             # baseline
             f0 = np.nanmedian(self.f_data)
-        
+
         depth = f0 - np.nanmean(self.f_data[t_mask])
 
         # If there is no points in-transit, the snr doesn't exist
@@ -466,6 +465,9 @@ class TransitFitter(TransitModel):
         wres['depth'] = wres['rp']**2
         wres['log_llr'] = self.calc_likelihood_ratio(result)
         wres['snr_estimate'] = self.estimate_snr()
+
+        wres['b'] = self.get_b()
+        wres['R_p'] = self.get_R_p()
 
         # Optional visualization (for testing)
         if show_fit:

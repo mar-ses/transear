@@ -58,7 +58,7 @@ def fit_transits(t, f, bls_peaks, R_star, M_star, bin_type='regular',
         bls_peaks = pd.DataFrame(bls_peaks).T
 
     params = ('per', 't0', 'rp', 'a', 'depth', 'duration', 'w', 'u1', 'u2',
-              'ecc', 'inc', 'log_llr', 'snr_estimate', 'snr')
+              'ecc', 'inc', 'log_llr', 'snr_estimate', 'snr', 'b', 'R_p')
     if calc_snr:
         params = params + ('snr_fit', 'mcmc_flag')
 
@@ -170,20 +170,11 @@ def fit_single_transit(t, f, bin_type='regular', bin_res=6,
     if f_err is None:
         f_err = stats.sigmaclip(f)[0].std()
 
-    # BUG
-    try:
-        tfitter = TransitFitter.from_bls(t, f, f_err, **fit_params,
+    tfitter = TransitFitter.from_bls(t, f, f_err, **fit_params,
                                      bin_res=bin_res, bin_type=bin_type,
                                      adjust_res=adjust_res,
                                      cut_lightcurve=cut_lightcurve,
                                      overlap_lim=overlap_lim)
-    except ValueError as e:
-        print("\n Prior verification failure detected\n", "-"*50)
-        print("TransitFitter first creation.")
-        print("**fit_params\n", fit_params)
-        if hasattr(e, 'parameter_dict'):
-            print("Parameter dict\n", e.parameter_dict)
-        raise e from None
 
 
     if freeze_a:
