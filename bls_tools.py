@@ -205,7 +205,14 @@ def search_transits(t, f, num_searches=10, R_star=0.1, M_star=0.1,
         bls_peaks.at[i, 'snr'] = blss.loc[blss.period == period, 'snr'].iloc[0]
 
         # BUG TODO
-        if not np.isfinite(bls_peaks.loc[i, 'snr']):
+        if bls_peaks.loc[i, 'noise'] == 0.0:
+            print("Zero noise in bls spectrum (causes infinite SNR)!")
+            raise ZeroBLSNoiseError("bls_peaks snr is nan. i = {}\n"
+                                    "bls_peaks = {}".format(i, bls_peaks),
+                                    bls_results=bls_results,
+                                    bls_peaks=bls_peaks)
+        elif not np.isfinite(bls_peaks.loc[i, 'snr']):
+            # With the above, this case is obsolete, keep it for now
             print("Non-finite snr in bls_peaks:", bls_peaks)
             raise ValueError("bls_peaks snr is nan. i = {}\n"
                              "bls_peaks = {}".format(i, bls_peaks))
@@ -877,6 +884,14 @@ class IntentValueError(InvertedLimitsError):
     """Some type in intent-error in the eebls part."""
 
     pass
+
+class ZeroBLSNoiseError(ValueError):
+    """When the noise in the BLS is zero, or the snr is infinity."""
+
+    def __init__(self, text, bls_results, bls_peaks=None, *args, **kwargs):
+        self.bls_results = bls_results
+        self.bls_peaks = bls_peaks
+        super().__init__(text, *args, **kwargs)
 
 
 # Testing routines

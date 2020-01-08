@@ -39,7 +39,7 @@ from .__init__ import K2GP_DIR
 def highlight_bls_peaks(lcf, bls_results, bls_peaks, title=None, show=True,
                         source='bls', clean_lcf=True, normalise_phase=True,
                         plot_dx=True, bls_col='snr', bls_axis='period',
-                        min_P_top=1.0, maximise=True, bin_folds=True):
+                        min_P_top=1.0, maximise=False, bin_folds=True):
     """Plots N folds, BLS spectrums, and the lightcurve on one large plot.
 
     N is determined by the dimension of bls_peaks.
@@ -209,17 +209,21 @@ def highlight_bls_peaks(lcf, bls_results, bls_peaks, title=None, show=True,
                 mlc=cl[i],
                 bin_fold=bin_folds,
                 **bls_peaks.loc[idx, ['tf_period',
-                                        'tf_t0',
-                                        'tf_rp',
-                                        'tf_a',
-                                        'tf_ecc',
-                                        'tf_inc',
-                                        'tf_w',
-                                        'tf_u1',
-                                        'tf_u2']])
+                                      'tf_t0',
+                                      'tf_rp',
+                                      'tf_a',
+                                      'tf_ecc',
+                                      'tf_inc',
+                                      'tf_w',
+                                      'tf_u1',
+                                      'tf_u2']])
 
-        ax_fold[i].set_ylim(max(0, min(lcf_fold.f) - 0.1*rms),
-                            max(lcf_fold.f) + 0.1*rms)
+        # BUG
+        try:
+            ax_fold[i].set_ylim(max(0, min(lcf_fold.f) - 0.1*rms),
+                                max(lcf_fold.f) + 0.1*rms)
+        except ValueError:
+            import pdb; pdb.set_trace()
         #ax_fold[i].set_yticks([f0, f0 - depth_array[idx]])
 
         if normalise_phase:
@@ -573,26 +577,33 @@ def highlight_tf_signal(t, f, show=True, ax=None, normalise_phase=True,
     ax.plot(t_model, f_model, '-', c=mlc, zorder=10)
 
     # Fold if required
-    if bin_fold and np.sum(np.abs(t_folded) < duration/2) > 12:
+    if bin_fold and np.sum(np.abs(t_folded) < duration/2) > 8:
         # Only if folded contains more than 12 points
         # Up to 8 bins in duration (nb; npb is number of points per bin)
         num_points = np.sum(np.abs(t_folded) < duration/2)
 
+        # tb and fb folded should have the same plot as t_fold vs f;
+        # however, they are sorted in tb_folded
         sort_args = np.argsort(t_folded)
-        t_folded = t_folded[sort_args]
-        f_folded = f[sort_args]
-
-        if num_points <= 18:
-            npb = 3
+        # For this to work however, both need to be numpy arrays
+        if isinstance(t_folded, np.ndarray):
+            tb_folded = t_folded[sort_args]
         else:
-            npb = max(4, int(num_points // 8))
+            tb_folded = t_folded.values[sort_args]
+        if isinstance(f, np.ndarray):
+            fb_folded = f[sort_args]
+        else:
+            fb_folded = f.values[sort_args]
 
-        t_bin, f_bin = bin_regular(t_folded, f_folded, npb)
+        if num_points <= 12:
+            npb = 4
+        else:
+            npb = max(5, int(num_points // 4))
 
-        # TODO: ISSUE IS THAT SOME F_BINS ARE NAN
-        #import pdb; pdb.set_trace()
+        t_bin, f_bin = bin_regular(tb_folded, fb_folded, npb)
 
-        ax.plot(t_bin, f_bin, '.', c='b', alpha=0.8, zorder=5)
+        ax.plot(t_bin, f_bin, marker='.', linestyle='-', c='b',
+                alpha=0.8, zorder=5)
 
     if title == 'auto':
         hduration = duration * 24
