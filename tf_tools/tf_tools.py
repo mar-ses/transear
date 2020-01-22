@@ -60,7 +60,7 @@ def fit_transits(t, f, bls_peaks, R_star, M_star, bin_type='regular',
     params = ('per', 't0', 'rp', 'a', 'depth', 'duration', 'w', 'u1', 'u2',
               'ecc', 'inc', 'log_llr', 'snr_estimate', 'snr', 'b', 'R_p')
     if calc_snr:
-        params = params + ('snr_fit', 'mcmc_flag')
+        params = params + ('snr_fit', 'mcmc_flag', 'rp_m', 'rp_l', 'rp_u')
 
     # Columns must be added in any case
     for col in ('period',) + params:
@@ -96,16 +96,14 @@ def fit_transits(t, f, bls_peaks, R_star, M_star, bin_type='regular',
                                       **p_initial)
 
         if calc_snr:
-            _, _, p_fit['snr_fit'], p_fit['mcmc_flag'] = sample_transit(
-                                      t, f, bin_type=bin_type,
-                                      bin_res=bin_res,
-                                      freeze_a=freeze_a,
-                                      overlap_lim=overlap_lim,
-                                      R_star=R_star,
-                                      M_star=M_star,
-                                      **fit_kwargs,
-                                      **p_initial)
+            rdf, _, p_fit['snr_fit'], p_fit['mcmc_flag'] = sample_transit(
+                t, f, bin_type=bin_type, bin_res=bin_res, freeze_a=freeze_a,
+                overlap_lim=overlap_lim, R_star=R_star, M_star=M_star,
+                **fit_kwargs, **p_initial)
             p_fit['snr'] = p_fit['snr_fit']
+            p_fit['rp_m'] = rdf.loc['median', 'rp']
+            p_fit['rp_l'] = rdf.loc['lower', 'rp']
+            p_fit['rp_u'] = rdf.loc['upper', 'rp']
         else:
             p_fit['snr'] = p_fit['snr_estimate']
 
