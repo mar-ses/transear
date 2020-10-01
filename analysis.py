@@ -91,6 +91,8 @@ def highlight_bls_peaks(lcf, bls_results, bls_peaks, title=None, show=True,
         lcf_fold = lcf_fold[~mask_floor(lcf_fold.f_detrended,
                                         sig_factor=6,
                                         base_val=0.3)]
+    else:
+        lcf_fold = lcf.copy()
 
     # Params for later
     rms = calc_noise(lcf.f_detrended)			# Check usage
@@ -447,8 +449,9 @@ def highlight_bls_signal(t, f, t0, period, duration, depth=None, show=True,
 
     if title == 'auto':
         hduration = duration * 24
-        fig.suptitle("P: {:.02f} - $t_0$: {:.04f}\n".format(period, t0) + \
-                    "depth: {:.02g} - duration (hr): {:.02g}".format(depth, hduration))
+        fig.suptitle(
+            "P: {:.02f} - $t_0$: {:.04f}\n".format(period, t0) + \
+            "depth: {:.02g} - duration (hr): {:.02g}".format(depth, hduration))
     elif isinstance(title, str):
         fig.suptitle(title)
 

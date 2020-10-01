@@ -136,7 +136,7 @@ class TransitModel(object):
             self['R_star'] = np.nan
         else:
             self['R_star'] = R_star
-    
+
         # Set the model timeseries
         self.set_timeseries(t, bin_res=bin_res, adjust_res=adjust_res,
                             bin_type=bin_type)
@@ -380,12 +380,12 @@ class TransitModel(object):
 
     def evaluate_model_at(self, t, pvector=None, p_fit=None, params=None):
         """Evaluates transit model at specific set of times.
-        
+)
         TODO: currently terrible and over-engineered; change
         this to just plot at specific times, and then instead
         do the looping over things and putting in parameters
         separate (?), or not perhaps.
-        
+
         Args:
             t (np.array): times at which to calculate model
             pvector (np.array): to enter if you have an array

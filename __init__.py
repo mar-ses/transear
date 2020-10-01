@@ -55,4 +55,7 @@ elif pc_name in ('telesto', 'Marko-PC'):
 	DATA_DIR = LOCAL_DATA
 else:
 	DATA_DIR = LOCAL_DATA	# just an assumption
+
+from . import tf_tools
+from . import bls_tools
 	

@@ -59,7 +59,7 @@ def check_parameter_match(p_fit, injection_model, aliases=True):
     # Set up aliases
     # --------------
     # Current aliases are 1/2, 2 and 3; check this.
-    P_alias = P * np.array([1/2, 1, 2, 3])
+    P_alias = P * np.array([1/3, 1/2, 1, 2, 3])
     t0_alias = np.empty_like(P_alias)
     alias_match = False		# keeps track of if an alias is found
 
