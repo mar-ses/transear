@@ -11,3 +11,4 @@ archive/*
 data/*
 !data/*.py
 
+candidates.py
